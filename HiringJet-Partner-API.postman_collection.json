@@ -1,0 +1,447 @@
+{
+  "info": {
+    "_postman_id": "c3a1e7b4-9d2f-4a68-8e15-6b0f4d2a91c7",
+    "name": "HiringJet Partner API",
+    "description": "Server-to-server partner API (`/api/v2`) plus the back-office calls that issue the key and secret.\n\n**Base URL:** `{{baseUrl}}` → `http://localhost:8082/api`\n\n**Partner auth (every `/v2` call)**\n- `X-HJ-API-KEY`: `{{apiKey}}`\n- `X-HJ-API-SECRET`: `{{apiSecret}}`\n- `Idempotency-Key`: `{{$guid}}` on POST and PATCH (a new UUID each send). Paste a fixed UUID to test replay.\n\n**Suggested order**\n1. Issue credential for a test key. A live key is issued only by Send live key code, then Confirm live key. Confirm revokes every previous key and allowlist for that organisation and returns the new secret once. Outside production the code is `1234`.\n2. Replace allowlist when using a live key.\n3. POST /v2/jobs: create a draft (jobTitle only or full body), update with jobId, publish with jobId + publish true (or one-shot full body + publish). Then Close.\n\n**Job fields:** Do not send organisationId, organisationUserId, draft, step, or jobPostId. keySkills is a string array. applicationMethod is EXTERNAL_LINK only; send externalApplicationLink.\n\n**Job status:** `DRAFT`, `PENDING`, `LIVE`, `CLOSED`\n\nApplications are not part of this API. Create, update, and publish are one call. Omit jobId to create. Send jobId to update. Set publish to true to publish. A draft requires jobTitle on create. Publish checks the completed job. A test key approves the job immediately (`LIVE`), indexes it with `sandboxPublished: true`, and does not consume a credit. A live key sends the job to the employer approval queue (`PENDING`), consumes one `JOB_POST` credit, and requires an allowlisted IP.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8082/api" },
+    { "key": "accessToken", "value": "" },
+    { "key": "organisationId", "value": "" },
+    { "key": "organisationUserId", "value": "" },
+    { "key": "productCode", "value": "JET_SCREEN" },
+    { "key": "apiKey", "value": "" },
+    { "key": "apiSecret", "value": "" },
+    { "key": "credentialId", "value": "" },
+    { "key": "confirmationCode", "value": "1234" },
+    { "key": "jobId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "01 - Credentials (back office)",
+      "item": [
+        {
+          "name": "Issue credential",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Created', () => pm.response.to.have.status(201));",
+                  "const data = pm.response.json().data;",
+                  "if (data?.id) pm.collectionVariables.set('credentialId', data.id);",
+                  "if (data?.apiKey) pm.collectionVariables.set('apiKey', data.apiKey);",
+                  "if (data?.apiSecret) pm.collectionVariables.set('apiSecret', data.apiSecret);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "x-portal-type", "value": "BACK_OFFICE" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"organisationId\": \"{{organisationId}}\",\n  \"organisationUserId\": \"{{organisationUserId}}\",\n  \"productCode\": \"{{productCode}}\",\n  \"environment\": \"TEST\",\n  \"label\": \"Postman ATS\"\n}"
+            },
+            "url": "{{baseUrl}}/v1/back-office/integrations/credentials",
+            "description": "Issues a TEST key. `LIVE` is rejected here. Use Send live key code, then Confirm live key."
+          },
+          "response": []
+        },
+        {
+          "name": "Send live key code",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('OK', () => pm.response.to.have.status(200));",
+                  "const data = pm.response.json().data;",
+                  "if (data?.code) pm.collectionVariables.set('confirmationCode', data.code);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "x-portal-type", "value": "BACK_OFFICE" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"organisationId\": \"{{organisationId}}\"\n}"
+            },
+            "url": "{{baseUrl}}/v1/back-office/integrations/credentials/live/send-code",
+            "description": "Stores a confirmation code for a live key. Non-production returns `data.code` as 1234 and does not email it. Production emails a one-time code to the organisation and omits the code from the response."
+          },
+          "response": []
+        },
+        {
+          "name": "Confirm live key",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Created', () => pm.response.to.have.status(201));",
+                  "const data = pm.response.json().data;",
+                  "if (data?.id) pm.collectionVariables.set('credentialId', data.id);",
+                  "if (data?.apiKey) pm.collectionVariables.set('apiKey', data.apiKey);",
+                  "if (data?.apiSecret) pm.collectionVariables.set('apiSecret', data.apiSecret);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "x-portal-type", "value": "BACK_OFFICE" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"organisationId\": \"{{organisationId}}\",\n  \"organisationUserId\": \"{{organisationUserId}}\",\n  \"productCode\": \"{{productCode}}\",\n  \"label\": \"Live ATS\",\n  \"code\": \"{{confirmationCode}}\"\n}"
+            },
+            "url": "{{baseUrl}}/v1/back-office/integrations/credentials/live/confirm",
+            "description": "Checks the code, revokes every previous credential and allowlist for the organisation, then returns a new `hj_live_pk_` / `hj_live_sk_` once. `data.revokedCredentialIds` lists the keys that were revoked. Set the allowlist on the new id before calling `/v2`."
+          },
+          "response": []
+        },
+        {
+          "name": "List credentials",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "x-portal-type", "value": "BACK_OFFICE" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/back-office/integrations/credentials?organisationId={{organisationId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["v1", "back-office", "integrations", "credentials"],
+              "query": [
+                { "key": "organisationId", "value": "{{organisationId}}" }
+              ]
+            },
+            "description": "Lists keys for the organisation. Secrets are not included."
+          },
+          "response": []
+        },
+        {
+          "name": "Replace IP allowlist",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "x-portal-type", "value": "BACK_OFFICE" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cidrs\": [\n    \"127.0.0.1\",\n    \"203.0.113.0/24\"\n  ]\n}"
+            },
+            "url": "{{baseUrl}}/v1/back-office/integrations/credentials/{{credentialId}}/allowlist",
+            "description": "Replaces the CIDR list. Required before a live key can call the API. An exact IP is treated as a single address."
+          },
+          "response": []
+        },
+        {
+          "name": "Revoke credential",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "x-portal-type", "value": "BACK_OFFICE" }
+            ],
+            "url": "{{baseUrl}}/v1/back-office/integrations/credentials/{{credentialId}}/revoke",
+            "description": "Later calls with this key return 401 INVALID_CREDENTIALS."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "02 - Jobs",
+      "item": [
+        {
+          "name": "Create draft (minimal)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Created', () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "if (body?.id) pm.collectionVariables.set('jobId', body.id);",
+                  "pm.test('Draft', () => pm.expect(body.status).to.eql('DRAFT'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-HJ-API-KEY", "value": "{{apiKey}}" },
+              { "key": "X-HJ-API-SECRET", "value": "{{apiSecret}}" },
+              { "key": "Idempotency-Key", "value": "{{$guid}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jobTitle\": \"Backend Engineer\"\n}"
+            },
+            "url": "{{baseUrl}}/v2/jobs",
+            "description": "Creates a draft. Only jobTitle is required on create. Saves `jobId` to collection variables."
+          },
+          "response": []
+        },
+        {
+          "name": "Create draft (full example)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Created', () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "if (body?.id) pm.collectionVariables.set('jobId', body.id);",
+                  "pm.test('Draft', () => pm.expect(body.status).to.eql('DRAFT'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-HJ-API-KEY", "value": "{{apiKey}}" },
+              { "key": "X-HJ-API-SECRET", "value": "{{apiSecret}}" },
+              { "key": "Idempotency-Key", "value": "{{$guid}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jobTitle\": \"Deployed Engineer\",\n  \"functionalArea\": \"Software Development\",\n  \"jobLocationCountry\": \"India\",\n  \"cities\": [\"Nashik\"],\n  \"minWorkExperience\": 0,\n  \"maxWorkExperience\": 1,\n  \"numberOfOpenPositions\": 1,\n  \"jobType\": \"FULL_TIME\",\n  \"workMode\": \"ONSITE\",\n  \"industryType\": \"Information Technology (IT)\",\n  \"minSalary\": 0,\n  \"maxSalary\": 0,\n  \"salaryCurrency\": \"AED\",\n  \"salaryPayCycle\": \"YEAR\",\n  \"qualification\": \"Any Bachelor's Degree\",\n  \"languages\": [\"Arabic\", \"Tamil\", \"English\"],\n  \"benefitsList\": [\"Accommodation Provided\", \"Annual Air Ticket / Return Ticket\", \"Annual Leave / Paid Vacation\"],\n  \"noticePeriods\": [\"IMMEDIATE\", \"ZERO_TO_FIFTEEN_DAYS\", \"ONE_MONTH\"],\n  \"gender\": \"ANY\",\n  \"keySkills\": [\"Software Development\", \"Cloud Computing\", \"DevOps Practices\", \"Scripting Languages\", \"System Integration\", \"Problem Solving\", \"Communication\"],\n  \"jobDescription\": \"<p>This role supports cloud-based software solutions, focusing on operational efficiency in a dynamic IT environment.</p>\",\n  \"applicationMethod\": \"EXTERNAL_LINK\",\n  \"externalApplicationLink\": \"https://onepirai.com\"\n}"
+            },
+            "url": "{{baseUrl}}/v2/jobs",
+            "description": "Creates a draft with a publish-ready Partner body (all fields optional on create except jobTitle). Saves `jobId`. Does not consume a job credit."
+          },
+          "response": []
+        },
+        {
+          "name": "Update draft",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-HJ-API-KEY", "value": "{{apiKey}}" },
+              { "key": "X-HJ-API-SECRET", "value": "{{apiSecret}}" },
+              { "key": "Idempotency-Key", "value": "{{$guid}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jobId\": \"{{jobId}}\",\n  \"jobTitle\": \"Senior Backend Engineer\",\n  \"numberOfOpenPositions\": 1\n}"
+            },
+            "url": "{{baseUrl}}/v2/jobs",
+            "description": "Same POST. jobId updates that draft. Only a DRAFT can be changed. Returns 200."
+          },
+          "response": []
+        },
+        {
+          "name": "Get job",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-HJ-API-KEY", "value": "{{apiKey}}" },
+              { "key": "X-HJ-API-SECRET", "value": "{{apiSecret}}" }
+            ],
+            "url": "{{baseUrl}}/v2/jobs/{{jobId}}",
+            "description": "A job owned by another organisation returns 404."
+          },
+          "response": []
+        },
+        {
+          "name": "List jobs",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-HJ-API-KEY", "value": "{{apiKey}}" },
+              { "key": "X-HJ-API-SECRET", "value": "{{apiSecret}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v2/jobs?status=DRAFT&q=Engineer&page=0&size=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["v2", "jobs"],
+              "query": [
+                { "key": "status", "value": "DRAFT", "description": "DRAFT, PENDING, LIVE, or CLOSED. Omit to return all." },
+                { "key": "q", "value": "Engineer", "description": "Title contains this text." },
+                { "key": "page", "value": "0" },
+                { "key": "size", "value": "20" }
+              ]
+            },
+            "description": "Page of jobs: `items`, `page`, `size`, `totalElements`, `totalPages`."
+          },
+          "response": []
+        },
+        {
+          "name": "Publish draft",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('OK', () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));",
+                  "const status = pm.response.json().status;",
+                  "pm.test('Test key is LIVE, live key is PENDING', () => pm.expect(status).to.be.oneOf(['LIVE', 'PENDING']));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-HJ-API-KEY", "value": "{{apiKey}}" },
+              { "key": "X-HJ-API-SECRET", "value": "{{apiSecret}}" },
+              { "key": "Idempotency-Key", "value": "{{$guid}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jobId\": \"{{jobId}}\",\n  \"publish\": true\n}"
+            },
+            "url": "{{baseUrl}}/v2/jobs",
+            "description": "Publish an existing complete draft. Uses employer portal completed-job validation. Test key → LIVE; live key → PENDING and one JOB_POST credit."
+          },
+          "response": []
+        },
+        {
+          "name": "Create and publish (one shot)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('OK', () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));",
+                  "const body = pm.response.json();",
+                  "if (body?.id) pm.collectionVariables.set('jobId', body.id);",
+                  "const status = body.status;",
+                  "pm.test('Test key is LIVE, live key is PENDING', () => pm.expect(status).to.be.oneOf(['LIVE', 'PENDING']));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-HJ-API-KEY", "value": "{{apiKey}}" },
+              { "key": "X-HJ-API-SECRET", "value": "{{apiSecret}}" },
+              { "key": "Idempotency-Key", "value": "{{$guid}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"publish\": true,\n  \"jobTitle\": \"Deployed Engineer\",\n  \"functionalArea\": \"Software Development\",\n  \"jobLocationCountry\": \"India\",\n  \"cities\": [\"Nashik\"],\n  \"minWorkExperience\": 0,\n  \"maxWorkExperience\": 1,\n  \"numberOfOpenPositions\": 1,\n  \"jobType\": \"FULL_TIME\",\n  \"workMode\": \"ONSITE\",\n  \"industryType\": \"Information Technology (IT)\",\n  \"minSalary\": 0,\n  \"maxSalary\": 0,\n  \"salaryCurrency\": \"AED\",\n  \"salaryPayCycle\": \"YEAR\",\n  \"qualification\": \"Any Bachelor's Degree\",\n  \"languages\": [\"Arabic\", \"Tamil\", \"English\"],\n  \"benefitsList\": [\"Accommodation Provided\", \"Annual Air Ticket / Return Ticket\", \"Annual Leave / Paid Vacation\"],\n  \"noticePeriods\": [\"IMMEDIATE\", \"ZERO_TO_FIFTEEN_DAYS\", \"ONE_MONTH\"],\n  \"gender\": \"ANY\",\n  \"keySkills\": [\"Software Development\", \"Cloud Computing\", \"DevOps Practices\", \"Scripting Languages\", \"System Integration\", \"Problem Solving\", \"Communication\"],\n  \"jobDescription\": \"<p>This role supports cloud-based software solutions, focusing on operational efficiency in a dynamic IT environment.</p>\",\n  \"applicationMethod\": \"EXTERNAL_LINK\",\n  \"externalApplicationLink\": \"https://onepirai.com\"\n}"
+            },
+            "url": "{{baseUrl}}/v2/jobs",
+            "description": "Create and publish in one POST. Omit jobId. Body must satisfy publish validation."
+          },
+          "response": []
+        },
+        {
+          "name": "Close",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "X-HJ-API-KEY", "value": "{{apiKey}}" },
+              { "key": "X-HJ-API-SECRET", "value": "{{apiSecret}}" },
+              { "key": "Idempotency-Key", "value": "{{$guid}}" }
+            ],
+            "url": "{{baseUrl}}/v2/jobs/{{jobId}}/close",
+            "description": "Closes a LIVE job."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "03 - Master Data",
+      "item": [
+        {
+          "name": "Get master data by key",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Array', () => pm.expect(Array.isArray(pm.response.json())).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-HJ-API-KEY", "value": "{{apiKey}}" },
+              { "key": "X-HJ-API-SECRET", "value": "{{apiSecret}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v2/master-data?dataKey=Functional Area",
+              "host": ["{{baseUrl}}"],
+              "path": ["v2", "master-data"],
+              "query": [
+                {
+                  "key": "dataKey",
+                  "value": "Functional Area",
+                  "description": "Category key: JobTitle, Benefits, Currency, Functional Area, Industry, Technical Skills, Soft Skills, Specialization, Nationality, VisaStatus, Language, VisaSponsorCountry"
+                }
+              ]
+            },
+            "description": "Returns allowed values for job posting fields (e.g. Functional Area, Industry, Technical Skills, Currency, etc.)."
+          },
+          "response": []
+        },
+        {
+          "name": "Get countries and cities",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Array', () => pm.expect(Array.isArray(pm.response.json())).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "X-HJ-API-KEY", "value": "{{apiKey}}" },
+              { "key": "X-HJ-API-SECRET", "value": "{{apiSecret}}" }
+            ],
+            "url": "{{baseUrl}}/v2/master-data/country",
+            "description": "Returns supported countries, cities, ISO code, currency, phone code, and salary ranges."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
